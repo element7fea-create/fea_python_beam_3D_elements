@@ -65,14 +65,7 @@ for i in range(0, nz-1):
 
 # integration points
 v = 1.0/np.sqrt(3)
-ips = np.array([[-v,-v,-v,1],
-    [v,-v,-v,1],
-    [v,v,-v,1],
-    [-v,v,-v,1],
-    [-v,-v,v,1],
-        [v,-v,v,1],
-        [v,v,v,1],
-        [-v,v,v,1]])
+ips = np.array([[-v,1],[v,1]])
 
 # element and index matrices
 Kel = np.zeros((24,24,nels))
@@ -92,36 +85,42 @@ for i in range(0,nels):
     coords = nodes[nds,:]
     for j in range(0,ips.shape[0]):
         xi = ips[j,0]
-        eta = ips[j,1]
-        phi =ips[j,2]
-        w = ips[j,3]
-        dN_dxi = np.array([-(1 - eta)*(1 - phi), (1 - eta)*(1 - phi), (1 - phi)*(eta + 1), -(1 - phi)*(eta + 1), -(1 - eta)*(phi + 1), (1 - eta)*(phi + 1), (eta + 1)*(phi + 1), -(eta + 1)*(phi + 1)])
-        dN_deta = [-(1 - phi)*(1 - xi), -(1 - phi)*(xi + 1), (1 - phi)*(xi + 1), (1 - phi)*(1 - xi), -(1 - xi)*(phi + 1), -(phi + 1)*(xi + 1), (phi + 1)*(xi + 1), (1 - xi)*(phi + 1)]
-        dN_dphi = [-(1 - eta)*(1 - xi), -(1 - eta)*(xi + 1), -(eta + 1)*(xi + 1), -(1 - xi)*(eta + 1), (1 - eta)*(1 - xi), (1 - eta)*(xi + 1), (eta + 1)*(xi + 1), (1 - xi)*(eta + 1)]
-
-        dN = 1/8*np.vstack((dN_dxi, dN_deta, dN_dphi))        
+        w1 = ips[j,1]
+        for k in range(0,ips.shape[0]):  
+            eta = ips[k,0]
+            w2 = ips[k,1]
+            for l in range(0,ips.shape[0]):
+                phi = ips[l,0]
+                w3 = ips[l,1]
         
-        matjac = dN@coords
-        dV = np.linalg.det(matjac)*w
+                w = w1*w2*w3
+                dN_dxi = np.array([-(1 - eta)*(1 - phi), (1 - eta)*(1 - phi), (1 - phi)*(eta + 1), -(1 - phi)*(eta + 1), -(1 - eta)*(phi + 1), (1 - eta)*(phi + 1), (eta + 1)*(phi + 1), -(eta + 1)*(phi + 1)])
+                dN_deta = [-(1 - phi)*(1 - xi), -(1 - phi)*(xi + 1), (1 - phi)*(xi + 1), (1 - phi)*(1 - xi), -(1 - xi)*(phi + 1), -(phi + 1)*(xi + 1), (phi + 1)*(xi + 1), (1 - xi)*(phi + 1)]
+                dN_dphi = [-(1 - eta)*(1 - xi), -(1 - eta)*(xi + 1), -(eta + 1)*(xi + 1), -(1 - xi)*(eta + 1), (1 - eta)*(1 - xi), (1 - eta)*(xi + 1), (eta + 1)*(xi + 1), (1 - xi)*(eta + 1)]
         
-        dcoords = np.linalg.solve(matjac, dN)
-        
-        B = np.zeros((6,24))
-        
-        B[0,0::3] = dcoords[0,:]
-        B[1,1::3] = dcoords[1,:]
-        B[2,2::3] = dcoords[2,:]
-        
-        B[3,0::3] = dcoords[1,:]
-        B[3,1::3] = dcoords[0,:]
-        
-        B[4,1::3] = dcoords[2,:]
-        B[4,2::3] = dcoords[1,:]
-        
-        B[5,0::3] = dcoords[2,:]
-        B[5,2::3] = dcoords[0,:]
-        
-        Kel[:,:,i] += B.transpose()@C@B*dV
+                dN = 1/8*np.vstack((dN_dxi, dN_deta, dN_dphi))        
+                
+                matjac = dN@coords
+                dV = np.linalg.det(matjac)*w
+                
+                dcoords = np.linalg.solve(matjac, dN)
+                
+                B = np.zeros((6,24))
+                
+                B[0,0::3] = dcoords[0,:]
+                B[1,1::3] = dcoords[1,:]
+                B[2,2::3] = dcoords[2,:]
+                
+                B[3,0::3] = dcoords[1,:]
+                B[3,1::3] = dcoords[0,:]
+                
+                B[4,1::3] = dcoords[2,:]
+                B[4,2::3] = dcoords[1,:]
+                
+                B[5,0::3] = dcoords[2,:]
+                B[5,2::3] = dcoords[0,:]
+                
+                Kel[:,:,i] += B.transpose()@C@B*dV
         
 # assemble to global
 numentries = Kel.shape[0]*Kel.shape[1] *Kel.shape[2]
@@ -166,6 +165,101 @@ ufea = np.min(displacement_vectors[:,2])
 
 percentage_error = (ufea-uth)/uth*100
 
+# calcualte stresses
+stresses = np.zeros((6,8,nels))
+nodal_stresses = np.zeros((nodes.shape[0],6))
+nodal_stresses_count = np.zeros((nodes.shape[0],))
+
+for i in range(0,nels):
+    nds = elements[i,:]
+    dofs = np.zeros((24,),dtype=int)
+    dofs[0::3] = nds*3
+    dofs[1::3] = nds*3+1
+    dofs[2::3] = nds*3+2
+    
+    unds = u[dofs]
+    
+    coords = nodes[nds,:]
+    
+    stressloc = 0
+    for j in range(0,ips.shape[0]):
+        xi = ips[j,0]
+        w1 = ips[j,1]
+        xip = 1/xi
+        for k in range(0,ips.shape[0]):  
+            eta = ips[k,0]
+            w2 = ips[k,1]
+            etap = 1/eta
+            for l in range(0,ips.shape[0]):
+                phi = ips[l,0]
+                w3 = ips[l,1]
+                phip = 1/phi
+        
+                w = w1*w2*w3
+                dN_dxi = np.array([-(1 - eta)*(1 - phi), (1 - eta)*(1 - phi), (1 - phi)*(eta + 1), -(1 - phi)*(eta + 1), -(1 - eta)*(phi + 1), (1 - eta)*(phi + 1), (eta + 1)*(phi + 1), -(eta + 1)*(phi + 1)])
+                dN_deta = [-(1 - phi)*(1 - xi), -(1 - phi)*(xi + 1), (1 - phi)*(xi + 1), (1 - phi)*(1 - xi), -(1 - xi)*(phi + 1), -(phi + 1)*(xi + 1), (phi + 1)*(xi + 1), (1 - xi)*(phi + 1)]
+                dN_dphi = [-(1 - eta)*(1 - xi), -(1 - eta)*(xi + 1), -(eta + 1)*(xi + 1), -(1 - xi)*(eta + 1), (1 - eta)*(1 - xi), (1 - eta)*(xi + 1), (eta + 1)*(xi + 1), (1 - xi)*(eta + 1)]
+        
+                dN = 1/8*np.vstack((dN_dxi, dN_deta, dN_dphi))        
+                
+                matjac = dN@coords
+                
+                dcoords = np.linalg.solve(matjac, dN)
+                
+                B = np.zeros((6,24))
+                
+                B[0,0::3] = dcoords[0,:]
+                B[1,1::3] = dcoords[1,:]
+                B[2,2::3] = dcoords[2,:]
+                
+                B[3,0::3] = dcoords[1,:]
+                B[3,1::3] = dcoords[0,:]
+                
+                B[4,1::3] = dcoords[2,:]
+                B[4,2::3] = dcoords[1,:]
+                
+                B[5,0::3] = dcoords[2,:]
+                B[5,2::3] = dcoords[0,:]
+                
+                stress = C@B@unds
+                stresses[:,stressloc, i] = stress
+                stressloc += 1
+                
+                N = 1/8*1/8*np.array([(1-xip)*(1-1/etap)*(1-1/phip),(1+xip)*(1-1/etap)*(1-1/phip),(1+xip)*(1+1/etap)*(1-1/phip),(1-xip)*(1+1/etap)*(1-1/phip),
+                                  (1-xip)*(1-1/etap)*(1+1/phip),(1+xip)*(1-1/etap)*(1+1/phip),(1+xip)*(1+1/etap)*(1+1/phip),(1-xip)*(1+1/etap)*(1+1/phip)])
+                
+                nodal_stresses[nds,0] += N*stress[0]                
+                nodal_stresses[nds,1] += N*stress[1]
+                nodal_stresses[nds,2] += N*stress[2]
+                nodal_stresses[nds,3] += N*stress[3]
+                nodal_stresses[nds,4] += N*stress[4]
+                nodal_stresses[nds,5] += N*stress[5]     
+                
+                nodal_stresses_count[nds] += N
+
+for i in range(0,nodes.shape[0]):
+    for j in range(0,6):
+        nodal_stresses[i,j] = nodal_stresses[i,j]/nodal_stresses_count[i]
+        
+# theroretical stresses
+L = xmax-xmin
+x_check = xmin+ L/4.0
+tolerance = 1e-4
+
+slice_indices = np.where(np.abs(nodes[:,0]-x_check)<tolerance)[0]
+top_surface_indices = slice_indices[np.abs(nodes[slice_indices,2]-zmax)<tolerance]
+
+fea_stresses_at_slice = nodal_stresses[top_surface_indices,0]
+sigma_fea_slice_avg = np.mean(fea_stresses_at_slice)
+
+sigma_theoretical = P*(L-L/4.0)/I*(-h/2)
+
+error_stress = (sigma_fea_slice_avg-sigma_theoretical)/sigma_theoretical*100
+
+
+print(f'error percentage in deflection {percentage_error:0.3f}%')
+print(f'error percentage in stress {error_stress:0.3f}%')
+
 
 pl = pv.Plotter()
 pvelements = np.zeros((nels, 9),dtype=int)
@@ -178,10 +272,11 @@ pl.add_mesh(grid,  opacity = 0.8,label='Original', style="wireframe")
 
 grid.point_data["Displacement"] = displacement_vectors
 grid.point_data["Magnitude"] = np.linalg.norm(displacement_vectors, axis = 1)
+grid.point_data["sigma_11"] = nodal_stresses[:,4]
 warp_factor = 50
 warped_grid = grid.warp_by_vector("Displacement", factor = warp_factor)
 
-pl.add_mesh(warped_grid, scalars="Magnitude", cmap="jet", show_edges = True, label ="Deformed")
+pl.add_mesh(warped_grid, scalars="sigma_11", cmap="jet", show_edges = True, label ="Deformed")
 
 pl.add_axes()
 
