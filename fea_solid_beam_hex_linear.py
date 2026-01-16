@@ -225,40 +225,51 @@ for i in range(0,nels):
                 stresses[:,stressloc, i] = stress
                 stressloc += 1
                 
-                N = 1/8*1/8*np.array([(1-xip)*(1-1/etap)*(1-1/phip),(1+xip)*(1-1/etap)*(1-1/phip),(1+xip)*(1+1/etap)*(1-1/phip),(1-xip)*(1+1/etap)*(1-1/phip),
-                                  (1-xip)*(1-1/etap)*(1+1/phip),(1+xip)*(1-1/etap)*(1+1/phip),(1+xip)*(1+1/etap)*(1+1/phip),(1-xip)*(1+1/etap)*(1+1/phip)])
+                N = 1/8*np.array([(1-xip)*(1-etap)*(1-phip),(1+xip)*(1-etap)*(1-phip),(1+xip)*(1+etap)*(1-phip),(1-xip)*(1+etap)*(1-phip),
+                                  (1-xip)*(1-etap)*(1+phip),(1+xip)*(1-etap)*(1+phip),(1+xip)*(1+etap)*(1+phip),(1-xip)*(1+etap)*(1+phip)])
                 
-                nodal_stresses[nds,0] += N*stress[0]                
+                nodal_stresses[nds,0] += N*stress[0]
                 nodal_stresses[nds,1] += N*stress[1]
                 nodal_stresses[nds,2] += N*stress[2]
                 nodal_stresses[nds,3] += N*stress[3]
                 nodal_stresses[nds,4] += N*stress[4]
-                nodal_stresses[nds,5] += N*stress[5]     
+                nodal_stresses[nds,5] += N*stress[5]
                 
                 nodal_stresses_count[nds] += N
-
-for i in range(0,nodes.shape[0]):
+                
+for i in range(0, nodes.shape[0]):
     for j in range(0,6):
         nodal_stresses[i,j] = nodal_stresses[i,j]/nodal_stresses_count[i]
         
-# theroretical stresses
-L = xmax-xmin
-x_check = xmin+ L/4.0
+# Validation at L/4
+x_check = xmin + L/4.0
 tolerance = 1e-4
 
-slice_indices = np.where(np.abs(nodes[:,0]-x_check)<tolerance)[0]
-top_surface_indices = slice_indices[np.abs(nodes[slice_indices,2]-zmax)<tolerance]
+slice_indices = np.where(np.abs(nodes[:,0] - x_check)<tolerance)[0]
+
+top_surface_indices = slice_indices[np.abs(nodes[slice_indices,2] - zmax)<tolerance]
 
 fea_stresses_at_slice = nodal_stresses[top_surface_indices,0]
 sigma_fea_slice_avg = np.mean(fea_stresses_at_slice)
 
-sigma_theoretical = P*(L-L/4.0)/I*(-h/2)
+sigma_th = P*(L-L/4)/I*(0-h/2)
 
-error_stress = (sigma_fea_slice_avg-sigma_theoretical)/sigma_theoretical*100
+percentage_error_sigma = (sigma_fea_slice_avg-sigma_th)/sigma_th*100
+
+print(f'percentage error in displacement is {percentage_error:.2}%')
+print(f'percentage error in stress is {percentage_error_sigma:.2}%')
 
 
-print(f'error percentage in deflection {percentage_error:0.3f}%')
-print(f'error percentage in stress {error_stress:0.3f}%')
+vmstress = np.zeros((nodes.shape[0],))
+for i in range(0,nodes.shape[0]):
+    s1 = nodal_stresses[i,0]-nodal_stresses[i,1]
+    s2 = nodal_stresses[i,1]-nodal_stresses[i,2]
+    s3 = nodal_stresses[i,2]-nodal_stresses[i,0]
+    s4 = nodal_stresses[i,3]
+    s5 = nodal_stresses[i,4]
+    s6 = nodal_stresses[i,5]
+
+    vmstress[i] = np.sqrt(s1**2+s2**2+s3**2+6*(s4**2+s5**2+s6**2))
 
 
 pl = pv.Plotter()
@@ -271,12 +282,13 @@ pl.add_mesh(grid,  opacity = 0.8,label='Original', style="wireframe")
 
 
 grid.point_data["Displacement"] = displacement_vectors
-grid.point_data["Magnitude"] = np.linalg.norm(displacement_vectors, axis = 1)
-grid.point_data["sigma_11"] = nodal_stresses[:,4]
+grid.point_data["Magnitude"] = np.linalg.norm(displacement_vectors, axis=1)
+grid.point_data["sigma11"] = nodal_stresses[:,0]
+grid.point_data["vmstress"] = vmstress
 warp_factor = 50
 warped_grid = grid.warp_by_vector("Displacement", factor = warp_factor)
 
-pl.add_mesh(warped_grid, scalars="sigma_11", cmap="jet", show_edges = True, label ="Deformed")
+pl.add_mesh(warped_grid, scalars="vmstress", cmap="jet", show_edges = True, label ="Deformed")
 
 pl.add_axes()
 
